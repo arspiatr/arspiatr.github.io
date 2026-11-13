@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Трекер">
+<meta name="theme-color" content="#000000">
+<title>Трекер</title>
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; connect-src 'none'; img-src 'self' data:; worker-src 'self'; manifest-src 'self'; base-uri 'none'; form-action 'none'; object-src 'none';">
+<style>
+:root{--bg:#000;--text:#fff;--panel:#1c1c1e;--green:#30d158;--red:#ff453a;--gray:#3a3a3c;--blue:#0a84ff}
+*{box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif}
+body{margin:0;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
+.screen{padding:20px;padding-top:calc(20px + env(safe-area-inset-top));padding-bottom:calc(20px + env(safe-area-inset-bottom));min-height:100dvh;display:none;flex-direction:column}
+#pin-screen{display:flex;justify-content:center;align-items:center}
+.pin-input{font-size:24px;padding:12px;width:100%;max-width:300px;text-align:center;border-radius:12px;border:1px solid var(--gray);background:var(--panel);color:var(--text);margin-bottom:20px}
+.btn{padding:16px 24px;border-radius:14px;border:none;font-size:18px;font-weight:600;cursor:pointer;color:#fff;background:var(--blue);width:100%;max-width:300px;margin-bottom:10px;transition:opacity .2s}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.dashboard{display:grid;grid-template-columns:1fr 1fr;gap:15px;margin-bottom:30px}
+.stat-card{background:var(--panel);padding:20px;border-radius:16px;text-align:center}
+.stat-card.full{grid-column:1/-1}
+.stat-value{font-size:42px;font-weight:bold;margin:10px 0}
+.stat-label{font-size:14px;color:#8e8e93;text-transform:uppercase;letter-spacing:1px}
+.calendar-nav{display:flex;justify-content:space-between;align-items:center;margin-bottom:15px}
+.calendar-nav button{background:none;border:none;color:var(--blue);font-size:24px;cursor:pointer;padding:0 10px}
+.calendar-header{font-size:22px;font-weight:bold}
+.calendar-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;margin-bottom:40px}
+.day{aspect-ratio:1;background:var(--panel);border-radius:8px;display:flex;justify-content:center;align-items:center;font-size:16px;font-weight:600;position:relative;cursor:pointer}
+.day.success{background:var(--green);color:#000}
+.day.fail{background:var(--red);color:#fff}
+.day.future{opacity:.3;pointer-events:none}
+.has-note::after{content:'';position:absolute;bottom:4px;width:6px;height:6px;border-radius:50%;background:var(--text)}
+.day.success.has-note::after{background:#000}
+.overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,.8);z-index:10;align-items:flex-end;justify-content:center}
+#modal{background:var(--panel);width:100%;border-radius:24px 24px 0 0;padding:30px 20px calc(30px + env(safe-area-inset-bottom));display:flex;flex-direction:column;gap:15px;animation:slideUp .25s ease-out}
+@keyframes slideUp{from{transform:translateY(100%)}to{transform:translateY(0)}}
+#modal h3{margin:0;font-size:24px;text-align:center}
+.status-btns{display:flex;gap:10px;margin-top:10px}
+.btn-success{background:var(--green);color:#000;flex:1}
+.btn-fail{background:var(--red);flex:1}
+.btn-clear{background:var(--gray);width:100%;max-width:none}
+textarea{width:100%;height:120px;background:var(--bg);color:var(--text);border:1px solid var(--gray);border-radius:12px;padding:15px;font-size:16px;resize:none}
+.settings-panel{background:var(--panel);padding:20px;border-radius:16px;margin-bottom:30px;display:flex;flex-direction:column;align-items:center}
+.settings-panel h3{margin-top:0;width:100%;text-align:left}
+.settings-panel p{color:#8e8e93;font-size:14px;width:100%;margin-top:0;margin-bottom:15px}
+input[type=file]{display:none}
+.center-modal{background:var(--panel);padding:25px;border-radius:20px;width:90%;max-width:350px;display:flex;flex-direction:column;align-items:center}
+.center-modal h3{margin-top:0;margin-bottom:12px}
+.center-modal p{text-align:center;color:#8e8e93;font-size:14px;margin:0 0 15px}
+</style>
+</head>
+<body>
+
+<div id="pin-screen" class="screen">
+  <h2>🔒 Приватный Трекер</h2>
+  <p id="pin-desc" style="color:#8e8e93;text-align:center;margin-bottom:30px">Пароль — это ключ шифрования.<br>Без него данные не восстановить.</p>
+  <input type="password" id="pin-input" class="pin-input" placeholder="Пароль (мин. 6 симв.)" autocomplete="off">
+  <input type="password" id="pin-confirm" class="pin-input" placeholder="Повторите пароль" autocomplete="off" style="display:none">
+  <button id="btn-login" class="btn">Войти</button>
+  <p id="pin-error" style="color:var(--red);display:none;text-align:center"></p>
+  <button id="btn-reset" style="background:none;border:none;color:#8e8e93;text-decoration:underline;margin-top:20px;font-size:14px;cursor:pointer;display:none">Сбросить базу (Удалить всё)</button>
+</div>
+
+<div id="app-screen" class="screen">
+  <div class="dashboard">
+    <div class="stat-card full"><div class="stat-label">Текущая серия</div><div class="stat-value" id="current-streak">0</div></div>
+    <div class="stat-card"><div class="stat-label">Рекорд</div><div class="stat-value" id="max-streak">0</div></div>
+    <div class="stat-card"><div class="stat-label">Всего чистых</div><div class="stat-value" id="total-clean">0</div></div>
+  </div>
+  <div class="calendar-nav">
+    <button id="btn-prev-month">«</button>
+    <div class="calendar-header" id="month-title">Календарь</div>
+    <button id="btn-next-month">»</button>
+  </div>
+  <div class="calendar-grid" id="calendar"></div>
+  <div class="settings-panel">
+    <h3>Резервное копирование</h3>
+    <p id="backup-status">Оффлайн-бэкап в зашифрованном виде.</p>
+    <button id="btn-export" class="btn" style="background:var(--gray)">Экспорт бэкапа</button>
+    <button id="btn-trigger-import" class="btn" style="background:var(--gray)">Импорт бэкапа</button>
+    <input type="file" id="import-file" accept=".json">
+  </div>
+</div>
+
+<div id="modal-overlay" class="overlay">
+  <div id="modal">
+    <h3 id="modal-date-title">Дата</h3>
+    <div class="status-btns">
+      <button id="btn-set-success" class="btn btn-success">Удержался</button>
+      <button id="btn-set-fail" class="btn btn-fail">Сорвался</button>
+    </div>
+    <button id="btn-set-clear" class="btn btn-clear">Сбросить отметку</button>
+    <textarea id="modal-note" placeholder="Заметка к дню... (неограниченно)"></textarea>
+    <button id="btn-save-day" class="btn" style="max-width:none">Сохранить</button>
+  </div>
+</div>
+
+<div id="import-overlay" class="overlay" style="align-items:center">
+  <div class="center-modal">
+    <h3>Восстановление</h3>
+    <p>Введите пароль, с которым был создан этот бэкап-файл.</p>
+    <input type="password" id="import-pin" class="pin-input" placeholder="Пароль от бэкапа" autocomplete="off">
+    <button id="btn-confirm-import" class="btn btn-success" style="width:100%">Расшифровать</button>
+    <button id="btn-cancel-import" class="btn btn-clear" style="width:100%">Отмена</button>
+  </div>
+</div>
+
+<div id="backup-overlay" class="overlay" style="align-items:center">
+  <div class="center-modal">
+    <h3>💾 Пора сделать бэкап</h3>
+    <p id="backup-msg"></p>
+    <button id="btn-backup-now" class="btn" style="width:100%">Сохранить в «Файлы»</button>
+    <button id="btn-backup-later" class="btn btn-clear" style="width:100%">Напомнить завтра</button>
+  </div>
+</div>
+
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+  let sessionKey=null, sessionSalt=null, appData={history:{}}, draftData={}, activeDateStr=null, currentViewMonth=null;
+  const ITERATIONS=600000, DB_KEY='trackerDB', LAST_KEY='trackerLastBackup', DAY=864e5, WEEK=7*DAY;
+  let snoozeUntil=0, hiddenAt=0, pendingImportFile=null;
+
+  // === Таймер бездействия (5 минут без касаний/ввода) ===
+  const IDLE_MS=5*60*1000;
+  let lastActivity=Date.now();
+  ['pointerdown','touchstart','keydown','input','scroll'].forEach(ev=>
+    document.addEventListener(ev,()=>{lastActivity=Date.now()},{passive:true,capture:true}));
+  setInterval(()=>{if(sessionKey&&Date.now()-lastActivity>IDLE_MS)lockApp()},10000);
+
+  const textEnc=new TextEncoder(), textDec=new TextDecoder();
+  const buf2b64=buf=>{const u=new Uint8Array(buf);let s='';for(let i=0;i<u.length;i+=8192)s+=String.fromCharCode.apply(null,u.subarray(i,i+8192));return btoa(s)};
+  const b642buf=b64=>Uint8Array.from(atob(b64),c=>c.charCodeAt(0));
+
+  async function deriveKey(pin,salt,iters=ITERATIONS){
+    const m=await crypto.subtle.importKey("raw",textEnc.encode(pin),"PBKDF2",false,["deriveKey"]);
+    return crypto.subtle.deriveKey({name:"PBKDF2",salt,iterations:iters,hash:"SHA-256"},m,{name:"AES-GCM",length:256},false,["encrypt","decrypt"]);
+  }
+  async function encryptData(obj,key){
+    const iv=crypto.getRandomValues(new Uint8Array(12));
+    const enc=await crypto.subtle.encrypt({name:"AES-GCM",iv},key,textEnc.encode(JSON.stringify(obj)));
+    return JSON.stringify({v:1,iters:ITERATIONS,salt:buf2b64(sessionSalt),iv:buf2b64(iv),data:buf2b64(enc)});
+  }
+  async function decryptData(str,passOrKey){
+    const p=JSON.parse(str), salt=b642buf(p.salt), iv=b642buf(p.iv), data=b642buf(p.data);
+    let key=passOrKey;
+    if(typeof passOrKey==='string') key=await deriveKey(passOrKey,salt,p.iters||ITERATIONS);
+    return JSON.parse(textDec.decode(await crypto.subtle.decrypt({name:"AES-GCM",iv},key,data)));
+  }
+
+  // === Время (совиный режим: -1 час) ===
+  const getOwlDate=()=>new Date(Date.now()-3600000);
+  const fmt=d=>`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const getTodayStr=()=>fmt(getOwlDate());
+  const parseDate=s=>{const [y,m,d]=s.split('-').map(Number);return new Date(y,m-1,d)};
+
+  // === Хранилище (безопасные обёртки) ===
+  const lsGet=k=>{try{return localStorage.getItem(k)}catch(e){return null}};
+  const lsSet=(k,v)=>localStorage.setItem(k,v);
+
+  // === Блокировка ===
+  function lockApp(){
+    sessionKey=null;sessionSalt=null;appData={history:{}};draftData={};
+    $('pin-input').value='';$('pin-confirm').value='';$('modal-note').value='';
+    $('app-screen').style.display='none';
+    ['modal-overlay','import-overlay','backup-overlay'].forEach(i=>$(i).style.display='none');
+    $('pin-screen').style.display='flex';
+    initLoginScreen();
+  }
+  document.addEventListener("visibilitychange",()=>{
+    if(document.hidden){hiddenAt=Date.now();return}
+    if(!sessionKey)return;
+    if(Date.now()-hiddenAt>60000) lockApp(); else {lastActivity=Date.now();checkBackupDue();}
+  });
+
+  // === Еженедельный бэкап ===
+  const getLastBackup=()=>Number(lsGet(LAST_KEY))||0;
+  function updateBackupStatus(){
+    const el=$('backup-status'), last=getLastBackup();
+    if(!last){el.textContent='Последний бэкап: ещё не было';el.style.color='var(--red)';return}
+    const days=Math.floor((Date.now()-last)/DAY);
+    el.textContent='Последний бэкап: '+(days<=0?'сегодня':days+' дн. назад');
+    el.style.color=days>=7?'var(--red)':'#8e8e93';
+  }
+  function markBackupDone(){
+    try{lsSet(LAST_KEY,String(Date.now()))}catch(e){}
+    $('backup-overlay').style.display='none';
+    updateBackupStatus();
+  }
+  function checkBackupDue(){
+    if(!sessionKey||Date.now()<snoozeUntil)return;
+    const last=getLastBackup();
+    if(last&&Date.now()-last<WEEK)return;
+    $('backup-msg').textContent=last?`С последнего бэкапа прошло ${Math.floor((Date.now()-last)/DAY)} дн. Сохрани файл в «Файлы» или iCloud Drive.`:'Бэкап ещё ни разу не сохранялся. Сохрани файл в «Файлы» или iCloud Drive.';
+    $('backup-overlay').style.display='flex';
+  }
+
+  // === Вход ===
+  function initLoginScreen(){
+    const has=!!lsGet(DB_KEY);
+    $('pin-confirm').style.display=has?'none':'block';
+    $('btn-login').innerText=has?'Войти':'Создать базу';
+    $('pin-desc').innerText=has?'Введите пароль для расшифровки':'Придумайте пароль. При утере данные сгорят.';
+    $('pin-error').style.display='none';
+    $('btn-login').disabled=false;
+    $('btn-reset').style.display=has?'block':'none';
+  }
+
+  async function handleLogin(){
+    const btn=$('btn-login');
+    if(btn.disabled)return;
+    const pass=$('pin-input').value, err=$('pin-error');
+    if(!pass)return;
+    if(pass.length<6){err.innerText="Пароль минимум 6 символов";err.style.display='block';return}
+    err.style.display='none';btn.disabled=true;btn.innerText="Обработка...";
+    await new Promise(r=>setTimeout(r,50));
+    const stored=lsGet(DB_KEY);
+    try{
+      if(stored){
+        const p=JSON.parse(stored);
+        sessionSalt=b642buf(p.salt);
+        sessionKey=await deriveKey(pass,sessionSalt,p.iters||ITERATIONS);
+        appData=await decryptData(stored,sessionKey);
+      }else{
+        if(pass!==$('pin-confirm').value) throw new Error('Пароли не совпадают!');
+        sessionSalt=crypto.getRandomValues(new Uint8Array(16));
+        sessionKey=await deriveKey(pass,sessionSalt);
+        await persistData();
+        lsSet(LAST_KEY,String(Date.now()));
+      }
+      $('pin-input').value='';$('pin-confirm').value='';
+      $('pin-screen').style.display='none';
+      $('app-screen').style.display='flex';
+      currentViewMonth=getOwlDate();
+      renderApp();
+      updateBackupStatus();
+      checkBackupDue();
+    }catch(e){
+      sessionKey=null;sessionSalt=null;
+      err.innerText=e.message==='Пароли не совпадают!'?e.message:'Неверный пароль или ошибка расшифровки';
+      err.style.display='block';btn.disabled=false;btn.innerText=stored?"Войти":"Создать базу";
+    }
+  }
+
+  async function persistData(){
+    try{lsSet(DB_KEY,await encryptData(appData,sessionKey))}
+    catch(e){
+      alert(e.name==='QuotaExceededError'?"Память браузера переполнена! Сделайте бэкап и очистите историю.":"Ошибка сохранения: "+e.message);
+      throw e;
+    }
+  }
+
+  // === Статистика и календарь ===
+  function calcStats(){
+    let curr=0,max=0,total=0;
+    const dates=Object.keys(appData.history).sort();
+    if(!dates.length)return{curr,max,total};
+    const end=getOwlDate(), today=getTodayStr();
+    for(let d=parseDate(dates[0]);d<=end;d.setDate(d.getDate()+1)){
+      const k=fmt(d), st=appData.history[k]?.status;
+      if(st==='success'){curr++;total++}
+      else if(st==='fail'||k!==today) curr=0;
+      if(curr>max)max=curr;
+    }
+    return{curr,max,total};
+  }
+  function renderApp(){
+    const s=calcStats();
+    $('current-streak').innerText=s.curr;$('max-streak').innerText=s.max;$('total-clean').innerText=s.total;
+    renderCalendar();
+  }
+  function renderCalendar(){
+    const cal=$('calendar');cal.innerHTML='';
+    const y=currentViewMonth.getFullYear(), m=currentViewMonth.getMonth();
+    const names=['Январь','Февраль','Март','Апрель','Май','Июнь','Июль','Август','Сентябрь','Октябрь','Ноябрь','Декабрь'];
+    $('month-title').innerText=`${names[m]} ${y}`;
+    const first=new Date(y,m,1), last=new Date(y,m+1,0), today=getTodayStr(), frag=document.createDocumentFragment();
+    const shift=first.getDay()===0?6:first.getDay()-1;
+    for(let i=0;i<shift;i++)frag.appendChild(document.createElement('div'));
+    for(let i=1;i<=last.getDate();i++){
+      const ds=fmt(new Date(y,m,i)), data=appData.history[ds], div=document.createElement('div');
+      div.className='day';
+      if(data?.status==='success'||data?.status==='fail')div.classList.add(data.status);
+      if(typeof data?.note==='string'&&data.note.trim())div.classList.add('has-note');
+      if(ds>today)div.classList.add('future');else div.addEventListener('click',()=>openModal(ds,i));
+      div.innerText=i;frag.appendChild(div);
+    }
+    cal.appendChild(frag);
+  }
+
+  // === Модалка дня ===
+  function openModal(ds,n){
+    activeDateStr=ds;
+    draftData=Object.assign({status:null,note:''},appData.history[ds]);
+    $('modal-date-title').innerText=`${n} число`;
+    $('modal-note').value=typeof draftData.note==='string'?draftData.note:'';
+    updateModalButtons();
+    $('modal-overlay').style.display='flex';
+  }
+  function updateModalButtons(){
+    $('btn-set-success').style.opacity=draftData.status==='fail'?'0.3':'1';
+    $('btn-set-fail').style.opacity=draftData.status==='success'?'0.3':'1';
+  }
+  async function saveDraft(){
+    const snapshot=JSON.stringify(appData.history);
+    draftData.note=$('modal-note').value;
+    if(!draftData.status&&!draftData.note.trim())delete appData.history[activeDateStr];
+    else appData.history[activeDateStr]=draftData;
+    try{await persistData();renderApp();$('modal-overlay').style.display='none'}
+    catch(e){appData.history=JSON.parse(snapshot)}
+  }
+
+  // === Экспорт / импорт ===
+  async function exportBackup(){
+    const raw=lsGet(DB_KEY);
+    if(!raw){alert("Нет данных");return false}
+    const file=new File([raw],`tracker_backup_${getTodayStr()}.json`,{type:'application/json'});
+    if(navigator.canShare&&navigator.canShare({files:[file]})){
+      try{await navigator.share({files:[file]});markBackupDone();return true}catch(e){return false}
+    }
+    const url=URL.createObjectURL(file), a=document.createElement('a');
+    a.href=url;a.download=file.name;a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),1000);
+    markBackupDone();return true;
+  }
+  function triggerImport(e){
+    pendingImportFile=e.target.files[0];e.target.value='';
+    if(!pendingImportFile)return;
+    $('import-pin').value='';$('import-overlay').style.display='flex';
+  }
+  function confirmImport(){
+    const btn=$('btn-confirm-import');
+    if(btn.disabled)return;
+    const pass=$('import-pin').value;
+    if(!pass||!pendingImportFile)return;
+    btn.disabled=true;btn.innerText="Расшифровка...";
+    const done=()=>{btn.disabled=false;btn.innerText="Расшифровать"};
+    const reader=new FileReader();
+    reader.onerror=()=>{done();alert("Не удалось прочитать файл")};
+    reader.onload=async ev=>{
+      try{
+        const imp=await decryptData(ev.target.result,pass);
+        if(!imp||typeof imp.history!=='object'||imp.history===null)throw new Error("format");
+        if(!confirm("Внимание! Текущая база будет заменена данными из бэкапа. Продолжить?"))return;
+        const prev=appData;
+        appData=imp;
+        try{await persistData()}catch(e){appData=prev;return}
+        renderApp();
+        $('import-overlay').style.display='none';
+        pendingImportFile=null;
+        alert("Успешно восстановлено!");
+      }catch(err){alert("Ошибка импорта: неверный пароль или битый файл.")}
+      finally{done()}
+    };
+    setTimeout(()=>reader.readAsText(pendingImportFile),50);
+  }
+
+  // === События ===
+  document.addEventListener('DOMContentLoaded',()=>{
+    if('serviceWorker' in navigator) navigator.serviceWorker.register('./sw.js').catch(()=>{});
+    if(navigator.storage&&navigator.storage.persist)navigator.storage.persist().catch(()=>{});
+    initLoginScreen();
+
+    $('btn-reset').addEventListener('click',()=>{
+      if(confirm("ВНИМАНИЕ! Это необратимо удалит все данные из браузера. Уверены?")&&confirm("Точно удалить? Без бэкапа восстановить данные невозможно!")){
+        try{localStorage.removeItem(DB_KEY);localStorage.removeItem(LAST_KEY)}catch(e){}
+        location.reload();
+      }
+    });
+    $('btn-login').addEventListener('click',handleLogin);
+    ['pin-input','pin-confirm'].forEach(i=>$(i).addEventListener('keydown',e=>{if(e.key==='Enter')handleLogin()}));
+    $('btn-prev-month').addEventListener('click',()=>{currentViewMonth=new Date(currentViewMonth.getFullYear(),currentViewMonth.getMonth()-1,1);renderCalendar()});
+    $('btn-next-month').addEventListener('click',()=>{currentViewMonth=new Date(currentViewMonth.getFullYear(),currentViewMonth.getMonth()+1,1);renderCalendar()});
+    $('btn-set-success').addEventListener('click',()=>{draftData.status='success';updateModalButtons()});
+    $('btn-set-fail').addEventListener('click',()=>{draftData.status='fail';updateModalButtons()});
+    $('btn-set-clear').addEventListener('click',()=>{draftData.status=null;updateModalButtons()});
+    $('btn-save-day').addEventListener('click',saveDraft);
+    $('modal-overlay').addEventListener('click',e=>{if(e.target.id==='modal-overlay')$('modal-overlay').style.display='none'});
+    $('modal').addEventListener('click',e=>e.stopPropagation());
+    $('btn-export').addEventListener('click',exportBackup);
+    $('btn-trigger-import').addEventListener('click',()=>$('import-file').click());
+    $('import-file').addEventListener('change',triggerImport);
+    $('btn-confirm-import').addEventListener('click',confirmImport);
+    $('btn-cancel-import').addEventListener('click',()=>{pendingImportFile=null;$('import-overlay').style.display='none'});
+    $('import-pin').addEventListener('keydown',e=>{if(e.key==='Enter')confirmImport()});
+    $('btn-backup-now').addEventListener('click',exportBackup);
+    $('btn-backup-later').addEventListener('click',()=>{snoozeUntil=Date.now()+DAY;$('backup-overlay').style.display='none'});
+  });
+})();
+</script>
+</body>
+</html>
